@@ -2,7 +2,9 @@
 
 사용법:
     pip install reportlab
-    python eml_to_pdf.py <eml 폴더> [출력 폴더] [--by month|year]
+    python eml_to_pdf.py <eml 폴더> [출력 폴더] [--by month|year] [--list 목록파일]
+
+    --list: 변환할 메일 파일명 목록(첫 열이 .eml 파일명인 TSV/TXT). 지정하면 목록에 있는 메일만 변환한다.
 
 출력 (출력 폴더 기본값: 메일_PDF):
     PDF/2023-01.pdf ...   월(또는 연)별 PDF. 첫 장은 목차, 이후 메일 1건씩 새 페이지에서 시작.
@@ -172,16 +174,27 @@ def build_pdf(group, rows, pdf_path):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    by_year = "--by" in sys.argv and sys.argv[sys.argv.index("--by") + 1] == "year"
-    if args and args[-1] in ("month", "year"):
-        args = args[:-1]
+    argv = sys.argv[1:]
+    opts = {}
+    for flag in ("--by", "--list"):
+        if flag in argv:
+            i = argv.index(flag)
+            opts[flag] = argv[i + 1]
+            del argv[i:i + 2]
+    args = argv
+    by_year = opts.get("--by") == "year"
+    only = None
+    if "--list" in opts:
+        with open(opts["--list"], encoding="utf-8-sig") as f:
+            only = {line.split("\t")[0].strip() for line in f if line.strip()}
     src = Path(args[0])
     out = Path(args[1]) if len(args) > 1 else Path("메일_PDF")
     (out / "PDF").mkdir(parents=True, exist_ok=True)
 
     rows, errors = [], []
     for p in sorted(src.rglob("*.eml")):
+        if only is not None and p.name not in only:
+            continue
         try:
             r = parse(p)
             r["_path"] = p
@@ -221,6 +234,11 @@ def main():
 
     if errors:
         (out / "오류.txt").write_text("\n".join(errors), encoding="utf-8")
+    if only is not None:
+        missing = only - {r["file"] for r in rows} - {"파일명"}
+        if missing:
+            (out / "목록에있으나_없는파일.txt").write_text("\n".join(sorted(missing)), encoding="utf-8")
+            print(f"목록에 있으나 폴더에서 찾지 못한 파일 {len(missing)}건 -> 목록에있으나_없는파일.txt")
     print(f"완료: 메일 {len(rows)}건, PDF {len(groups)}개, 오류 {len(errors)}건 -> {out.resolve()}")
 
 
